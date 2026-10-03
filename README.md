@@ -18,11 +18,13 @@ Other commands:
 
 ## How to play (so far)
 
-- **Click the floor** to walk there.
-- **Click an exit** (the dark doorways marked N, NE, E and so on) to walk through it.
-- **Click a thing** (a table, the well, a wall) to look at it.
-- **Click a closed door** to walk up to it and open it.
-- **Type commands** in the box: `north` or `n`, `northeast` or `ne`, `up`, `down`, `look`, `open north`, `close north`, `search`, `help`.
+Each room is one octagon, a little scene of its own. You don't walk around inside it. Being in the room is enough to deal with anything in it.
+
+- **Click a doorway** on any of the eight sides to go through it.
+- **Click a closed door** to open it, then click it again to go through.
+- **Click a thing** in the room (the well, a rat, a knife) to look at it.
+- **Click stairs** to go up or down.
+- **Type commands** in the box: `north` or `n`, `northeast` or `ne`, `up`, `down`, `look`, `look well`, `open north`, `close north`, `search`, `help`.
 
 There's a locked door in the kitchen (no keys yet) and a secret door somewhere in the Great Hall. Try `search`.
 
@@ -42,9 +44,17 @@ Keeping the rules separate from the screen matters most. Later, `game.ts` moves 
 
 ### Rooms are octagons
 
-Every room is drawn on an 11 × 11 grid of tiles. Four tiles are cut off each corner to make an octagon, and its outer ring becomes wall. Each of the eight sides has one spot where a doorway can be cut, for north, northeast, east, southeast, south, southwest, west and northwest. Up and down exits are stairs inside the room.
+Each of a room's eight sides can hold an exit: north, northeast, east, southeast, south, southwest, west and northwest. A room can also have up and down exits, which show as stairs inside the room.
 
-To add a room, copy one in `ROOMS` in `world.ts`, change the picture in `layout` (`.` floor, `,` grass, `T` table, `o` well, `<` stairs up, `>` stairs down), and list its `exits`. Remember to add the matching exit back in the room it connects to.
+What's in a room is a list of `contents`. Each thing has a name, the words a player can type for it, a kind (feature, item or creature), and a description:
+
+```ts
+{ name: "an old well", keywords: ["well"], kind: "feature", description: "An old stone well. You hear water far below." }
+```
+
+Clicking a thing sends `look well`, the same command a terminal player would type.
+
+To add a room, copy one in `ROOMS` in `world.ts`, change its details, and list its `exits`. Remember to add the matching exit back in the room it connects to.
 
 ### Room qualities
 
@@ -70,7 +80,3 @@ exits: {
 ```
 
 A door has two sides, one in each room. Opening or closing one side does the same to the other. Door flags are `locked` (won't open), `secret` (hidden until you `search`), and `trapped` (marked for now, but traps come later).
-
-### Walking
-
-When you click a floor tile, the rules work out the shortest route there using a *breadth-first search*. It spreads out from where you stand one tile at a time, remembering how it reached each tile, until it reaches the one you clicked. The screen then animates the steps.

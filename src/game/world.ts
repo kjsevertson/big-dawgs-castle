@@ -1,4 +1,4 @@
-// The world: what rooms exist, what they look like, and how they connect.
+// The world: what rooms exist, what's in them, and how they connect.
 // This file is pure data and types. It knows nothing about drawing or the mouse.
 
 // Eight sides of the octagon, plus up and down.
@@ -32,33 +32,6 @@ export const OPPOSITE: Record<Direction, Direction> = {
   up: "down", down: "up",
 };
 
-// Every kind of tile a room can be built from.
-export type TileKind = "void" | "wall" | "floor" | "grass" | "table" | "well" | "stairsUp" | "stairsDown" | "exit" | "doorClosed" | "doorOpen";
-
-export interface TileInfo {
-  kind: TileKind;
-  walkable: boolean;
-  description: string; // shown when the player clicks this tile
-}
-
-// Each tile kind gets one character, so room layouts can be typed as little pictures.
-export const TILES: Record<string, TileInfo> = {
-  " ": { kind: "void", walkable: false, description: "" },
-  "#": { kind: "wall", walkable: false, description: "Cold grey stone, fitted tight." },
-  ".": { kind: "floor", walkable: true, description: "Worn flagstones." },
-  ",": { kind: "grass", walkable: true, description: "Patchy grass pushing up between the stones." },
-  "T": { kind: "table", walkable: false, description: "A long, heavy oak table, scarred by knives." },
-  "o": { kind: "well", walkable: false, description: "An old well. You hear water far below." },
-  "<": { kind: "stairsUp", walkable: true, description: "Stairs leading up." },
-  ">": { kind: "stairsDown", walkable: true, description: "Stairs leading down." },
-};
-
-// Every room is an octagon drawn on an 11 x 11 grid of tiles.
-export const ROOM_SIZE = 11;
-const CORNER_CUT = 4; // how many tiles are cut off each corner to make the octagon
-const LAST = ROOM_SIZE - 1;
-const MID = Math.floor(ROOM_SIZE / 2);
-
 // ---- room qualities ----
 // What each of these does to play is decided later. For now rooms just carry them.
 
@@ -78,6 +51,17 @@ export interface Exit {
   door?: Door;
 }
 
+// Something in a room you can interact with. You never walk over to it:
+// being in the room is enough, just like a classic MUD.
+export type ThingKind = "feature" | "item" | "creature";
+
+export interface Thing {
+  name: string;        // how it's listed, e.g. "an old well"
+  keywords: string[];  // words a player can type to mean it, e.g. ["well"]
+  kind: ThingKind;
+  description: string; // shown when you look at it
+}
+
 export interface Room {
   id: string;
   name: string;
@@ -87,111 +71,27 @@ export interface Room {
   road?: boolean;   // a road runs through this room, whatever its sector
   indoor: boolean;  // indoor rooms don't feel weather, daylight or night
   light: number;    // 0 is perfect darkness, 100 is the brightest summer noon
-  // ROOM_SIZE strings of ROOM_SIZE characters, using the keys of TILES.
-  // Only the inside matters: the octagon's walls are added automatically.
-  layout: string[];
   exits: Partial<Record<Direction, Exit>>;
-}
-
-// Is (x, y) inside the octagon at all?
-function insideOctagon(x: number, y: number): boolean {
-  if (x < 0 || y < 0 || x > LAST || y > LAST) return false;
-  return x + y >= CORNER_CUT
-    && (LAST - x) + y >= CORNER_CUT
-    && x + (LAST - y) >= CORNER_CUT
-    && (LAST - x) + (LAST - y) >= CORNER_CUT;
-}
-
-// The outer ring of the octagon is wall: inside tiles that touch the outside.
-function onOctagonEdge(x: number, y: number): boolean {
-  if (!insideOctagon(x, y)) return false;
-  return !insideOctagon(x + 1, y) || !insideOctagon(x - 1, y) || !insideOctagon(x, y + 1) || !insideOctagon(x, y - 1);
-}
-
-// Each side of the octagon has one spot where a doorway can be cut.
-// Up and down exits are the stairs tile inside the room.
-export function exitTile(room: Room, dir: Direction): { x: number; y: number } | null {
-  const d = CORNER_CUT / 2; // middle of a diagonal side
-  switch (dir) {
-    case "north": return { x: MID, y: 0 };
-    case "south": return { x: MID, y: LAST };
-    case "west": return { x: 0, y: MID };
-    case "east": return { x: LAST, y: MID };
-    case "northwest": return { x: d, y: d };
-    case "northeast": return { x: LAST - d, y: d };
-    case "southwest": return { x: d, y: LAST - d };
-    case "southeast": return { x: LAST - d, y: LAST - d };
-    case "up": return findTile(room, "<");
-    case "down": return findTile(room, ">");
-  }
-}
-
-function findTile(room: Room, char: string): { x: number; y: number } | null {
-  for (let y = 0; y < room.layout.length; y++) {
-    const x = room.layout[y].indexOf(char);
-    if (x !== -1) return { x, y };
-  }
-  return null;
-}
-
-// What is at (x, y)? The octagon shape comes first, then exits, then the layout.
-// `hidden` lists exits this player can't see yet (secret doors not found).
-export function tileAt(room: Room, x: number, y: number, hidden: Direction[] = []): { info: TileInfo; exit?: Direction } {
-  if (!insideOctagon(x, y)) return { info: TILES[" "] };
-
-  for (const [dir, exit] of Object.entries(room.exits) as [Direction, Exit][]) {
-    if (hidden.includes(dir)) continue;
-    const pos = exitTile(room, dir);
-    if (!pos || pos.x !== x || pos.y !== y) continue;
-    if (dir === "up" || dir === "down") return { info: TILES[room.layout[y][x]], exit: dir };
-    if (exit.door?.closed) return { info: { kind: "doorClosed", walkable: false, description: `A closed door leading ${dir}.` }, exit: dir };
-    if (exit.door) return { info: { kind: "doorOpen", walkable: true, description: `An open door leading ${dir}.` }, exit: dir };
-    return { info: { kind: "exit", walkable: true, description: `An opening leading ${dir}.` }, exit: dir };
-  }
-
-  if (onOctagonEdge(x, y)) return { info: TILES["#"] };
-  return { info: TILES[room.layout[y][x]] ?? TILES["."] };
+  contents: Thing[];
 }
 
 export const ROOMS: Record<string, Room> = {
   gatehouse: {
     id: "gatehouse",
     name: "The Gatehouse",
-    description: "A cramped stone room under the castle wall. The courtyard opens to the north.",
+    description: "A cramped stone room under the castle wall. The courtyard lies to the north.",
     sector: "city", climate: "temperate", road: true, indoor: true, light: 35,
-    layout: [
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-    ],
     exits: { north: { to: "courtyard", door: { closed: true } } },
+    contents: [
+      { name: "a portcullis winch", keywords: ["winch", "portcullis"], kind: "feature", description: "A big iron winch, rusted solid. Nobody has lowered the portcullis in years." },
+      { name: "a guard's stool", keywords: ["stool"], kind: "item", description: "A three-legged stool, worn smooth by a lot of bored guards." },
+    ],
   },
   courtyard: {
     id: "courtyard",
     name: "The Courtyard",
-    description: "An open yard of stone and grass with a well in the middle. Ways lead off in many directions.",
+    description: "An open yard of stone and grass. Ways lead off in many directions.",
     sector: "city", climate: "temperate", road: true, indoor: false, light: 80,
-    layout: [
-      "...........",
-      "...,,,,,...",
-      "..,,...,,..",
-      ".,,.....,,.",
-      ".,.......,.",
-      ".,...o...,.",
-      ".,.......,.",
-      ".,,.....,,.",
-      "..,,...,,..",
-      "...,,,,,...",
-      "...........",
-    ],
     exits: {
       north: { to: "greatHall" },
       northeast: { to: "kitchen" },
@@ -199,138 +99,102 @@ export const ROOMS: Record<string, Room> = {
       west: { to: "towerBase" },
       southwest: { to: "garden" },
     },
+    contents: [
+      { name: "an old well", keywords: ["well"], kind: "feature", description: "An old stone well. You hear water far below." },
+      { name: "a hay cart", keywords: ["cart", "hay"], kind: "feature", description: "A cart half full of damp hay, one wheel missing." },
+      { name: "a stray dog", keywords: ["dog"], kind: "creature", description: "A scruffy brown dog. It watches you, hoping for food." },
+    ],
   },
   greatHall: {
     id: "greatHall",
     name: "The Great Hall",
-    description: "A long hall with feasting tables. The kitchen is to the east.",
+    description: "A long hall with a feasting table. The kitchen is to the east.",
     sector: "city", climate: "temperate", indoor: true, light: 60,
-    layout: [
-      "...........",
-      "...........",
-      "...........",
-      "...TTTTT...",
-      "...........",
-      "...........",
-      "...........",
-      "...TTTTT...",
-      "...........",
-      "...........",
-      "...........",
-    ],
     exits: {
       south: { to: "courtyard" },
       east: { to: "kitchen", door: { closed: true } },
       west: { to: "passage", door: { closed: true, secret: true } },
     },
+    contents: [
+      { name: "a feasting table", keywords: ["table"], kind: "feature", description: "A long, heavy oak table, scarred by knives." },
+      { name: "a cold hearth", keywords: ["hearth", "fireplace"], kind: "feature", description: "A great stone fireplace. The ashes are long cold. One stone in the west wall beside it looks newer than the rest." },
+      { name: "a tattered banner", keywords: ["banner"], kind: "feature", description: "A faded banner showing a large black dog on a red field." },
+    ],
   },
   kitchen: {
     id: "kitchen",
     name: "The Kitchen",
     description: "Smoke-stained walls and a long work table. It smells of old bread.",
     sector: "city", climate: "temperate", indoor: true, light: 50,
-    layout: [
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "....TTT....",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-    ],
     exits: {
       west: { to: "greatHall", door: { closed: true } },
       southwest: { to: "courtyard" },
       north: { to: "pantry", door: { closed: true, locked: true, trapped: true } },
     },
-  },
-  garden: {
-    id: "garden",
-    name: "The Herb Garden",
-    description: "Overgrown beds of herbs inside a low wall. The tower rises to the north.",
-    sector: "city", climate: "temperate", indoor: false, light: 85,
-    layout: [
-      "...........",
-      "...........",
-      "..,,,,,,,..",
-      ".,,,,,,,,,.",
-      ".,,,...,,,.",
-      ".,,,...,,,.",
-      ".,,,...,,,.",
-      ".,,,,,,,,,.",
-      "..,,,,,,,..",
-      "...........",
-      "...........",
+    contents: [
+      { name: "a bread oven", keywords: ["oven"], kind: "feature", description: "A domed brick oven, still faintly warm." },
+      { name: "a kitchen knife", keywords: ["knife"], kind: "item", description: "A short, sharp kitchen knife." },
+      { name: "a fat rat", keywords: ["rat"], kind: "creature", description: "A rat the size of a small cat, chewing on a crust." },
     ],
-    exits: { northeast: { to: "courtyard" }, north: { to: "towerBase" } },
-  },
-  towerBase: {
-    id: "towerBase",
-    name: "Base of the Tower",
-    description: "A tall room with stairs climbing up into darkness.",
-    sector: "city", climate: "temperate", indoor: true, light: 20,
-    layout: [
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      ".....<.....",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-    ],
-    exits: {
-      east: { to: "courtyard" },
-      south: { to: "garden" },
-      north: { to: "passage" },
-      up: { to: "towerTop" },
-    },
-  },
-  towerTop: {
-    id: "towerTop",
-    name: "Top of the Tower",
-    description: "Wind whips across the battlements. You can see the whole castle from here.",
-    sector: "city", climate: "temperate", indoor: false, light: 90,
-    layout: [
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      ".....>.....",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
-    ],
-    exits: { down: { to: "towerBase" } },
-  },
-  passage: {
-    id: "passage",
-    name: "A Secret Passage",
-    description: "A narrow, dusty passage hidden inside the castle wall.",
-    sector: "city", climate: "temperate", indoor: true, light: 5,
-    layout: Array(11).fill("..........."),
-    exits: {
-      east: { to: "greatHall", door: { closed: true, secret: true } },
-      south: { to: "towerBase" },
-    },
   },
   pantry: {
     id: "pantry",
     name: "The Pantry",
     description: "Shelves of jars and sacks. Somebody keeps this locked for a reason.",
     sector: "city", climate: "temperate", indoor: true, light: 15,
-    layout: Array(11).fill("..........."),
     exits: { south: { to: "kitchen", door: { closed: true, locked: true, trapped: true } } },
+    contents: [
+      { name: "sacks of flour", keywords: ["sacks", "flour"], kind: "item", description: "Heavy sacks of flour, stacked to the ceiling." },
+    ],
+  },
+  garden: {
+    id: "garden",
+    name: "The Herb Garden",
+    description: "Overgrown beds of herbs inside a low wall. The tower rises to the north.",
+    sector: "city", climate: "temperate", indoor: false, light: 85,
+    exits: { northeast: { to: "courtyard" }, north: { to: "towerBase" } },
+    contents: [
+      { name: "a patch of mint", keywords: ["mint", "patch"], kind: "feature", description: "Mint has taken over half the garden. It smells wonderful." },
+      { name: "a stone bench", keywords: ["bench"], kind: "feature", description: "A mossy stone bench in the sun." },
+    ],
+  },
+  towerBase: {
+    id: "towerBase",
+    name: "Base of the Tower",
+    description: "A tall, round room with stairs climbing up into darkness.",
+    sector: "city", climate: "temperate", indoor: true, light: 20,
+    exits: {
+      east: { to: "courtyard" },
+      south: { to: "garden" },
+      north: { to: "passage" },
+      up: { to: "towerTop" },
+    },
+    contents: [
+      { name: "a cobwebbed barrel", keywords: ["barrel"], kind: "item", description: "An old barrel wrapped in cobwebs. Something sloshes inside." },
+    ],
+  },
+  towerTop: {
+    id: "towerTop",
+    name: "Top of the Tower",
+    description: "Wind whips across the battlements. You can see the whole castle from here.",
+    sector: "city", climate: "temperate", indoor: false, light: 90,
+    exits: { down: { to: "towerBase" } },
+    contents: [
+      { name: "a rusty spyglass", keywords: ["spyglass", "glass"], kind: "item", description: "A brass spyglass, green with age. The lens is cracked." },
+    ],
+  },
+  passage: {
+    id: "passage",
+    name: "A Secret Passage",
+    description: "A narrow, dusty passage hidden inside the castle wall.",
+    sector: "city", climate: "temperate", indoor: true, light: 5,
+    exits: {
+      east: { to: "greatHall", door: { closed: true, secret: true } },
+      south: { to: "towerBase" },
+    },
+    contents: [
+      { name: "an empty torch bracket", keywords: ["bracket", "torch"], kind: "feature", description: "An iron torch bracket. Whoever used this passage took the torch with them." },
+    ],
   },
 };
 
@@ -345,11 +209,10 @@ export function mapPositions(): Record<string, { x: number; y: number; z: number
     const id = queue.shift()!;
     const here = positions[id];
     for (const [dir, exit] of Object.entries(ROOMS[id].exits) as [Direction, Exit][]) {
-      const targetId = exit.to;
-      if (positions[targetId]) continue;
+      if (positions[exit.to]) continue;
       const step = DIRECTION_STEP[dir];
-      positions[targetId] = { x: here.x + step.dx, y: here.y + step.dy, z: here.z + step.dz };
-      queue.push(targetId);
+      positions[exit.to] = { x: here.x + step.dx, y: here.y + step.dy, z: here.z + step.dz };
+      queue.push(exit.to);
     }
   }
   return positions;
