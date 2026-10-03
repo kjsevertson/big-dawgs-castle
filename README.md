@@ -18,9 +18,9 @@ Other commands:
 
 ## How to play (so far)
 
-Each room is one octagon, a little scene of its own. You don't walk around inside it. Being in the room is enough to deal with anything in it.
+Each room is one square, a little scene of its own. You don't walk around inside it. Being in the room is enough to deal with anything in it.
 
-- **Click a doorway** on any of the eight sides to go through it.
+- **Click a doorway** to go through it. North, south, east and west are in the middle of the walls; the diagonals are in the corners.
 - **Click a closed door** to open it, then click it again to go through.
 - **Click a thing** in the room (the well, a rat, a knife) to look at it.
 - **Click stairs** to go up or down.
@@ -42,9 +42,11 @@ There are three files, and each one has a single job:
 
 Keeping the rules separate from the screen matters most. Later, `game.ts` moves onto a server that every player connects to, so everyone shares one world. The screen then just sends commands and draws what comes back. A terminal player's typed `north` and a mouse player's click on the north doorway become the same command.
 
-### Rooms are octagons
+### Rooms are squares
 
-Each of a room's eight sides can hold an exit: north, northeast, east, southeast, south, southwest, west and northwest. A room can also have up and down exits, which show as stairs inside the room.
+A room can have eight exits around it. North, south, east and west sit in the middle of the walls, and northeast, northwest, southeast and southwest sit in the corners. A room can also have up and down exits, which show as stairs inside the room.
+
+The room is drawn 528 × 528 pixels, the size of a room backdrop image.
 
 What's in a room is a list of `contents`. Each thing has a name, the words a player can type for it, a kind (feature, item or creature), and a description:
 

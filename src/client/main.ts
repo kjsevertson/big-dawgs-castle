@@ -5,10 +5,12 @@
 import { Game } from "../game/game";
 import { DIRECTION_STEP, Direction, ROOMS, Thing, ThingKind, mapPositions } from "../game/world";
 
-const SIZE = 560; // the room canvas is SIZE x SIZE pixels
+const ROOM = 528; // the room is a ROOM x ROOM square, the size of a backdrop image
+const MARGIN = 24; // space around the room for exit labels
+const SIZE = ROOM + MARGIN * 2; // the whole canvas
 const CENTER = SIZE / 2;
-const RADIUS = 236; // center to each corner of the octagon
-const APOTHEM = RADIUS * Math.cos(Math.PI / 8); // center to the middle of each side
+const HALF = ROOM / 2;
+const CORNER_INSET = 30; // how far a corner doorway sits in from the corner
 const TOKEN = 30; // radius of each thing in the room
 
 const COLORS = {
@@ -36,11 +38,22 @@ const EXIT_LABELS: Record<Direction, string> = {
   south: "S", southwest: "SW", west: "W", northwest: "NW", up: "UP", down: "DOWN",
 };
 
-// The angle each side of the octagon faces, in radians (0 is east, north is up).
-const SIDE_ANGLE: Partial<Record<Direction, number>> = {
+// Which way each exit faces, in radians (0 is east, north is up).
+// North, south, east and west sit in the middle of a wall; the diagonals sit in the corners.
+const EXIT_ANGLE: Partial<Record<Direction, number>> = {
   east: 0, southeast: Math.PI / 4, south: Math.PI / 2, southwest: (3 * Math.PI) / 4,
   west: Math.PI, northwest: (-3 * Math.PI) / 4, north: -Math.PI / 2, northeast: -Math.PI / 4,
 };
+
+// Where on screen an exit's doorway sits.
+function exitSpot(dir: Direction): { x: number; y: number; angle: number } {
+  const angle = EXIT_ANGLE[dir]!;
+  const dx = Math.round(Math.cos(angle));
+  const dy = Math.round(Math.sin(angle));
+  const corner = dx !== 0 && dy !== 0;
+  const reach = corner ? HALF - CORNER_INSET : HALF;
+  return { x: CENTER + dx * reach, y: CENTER + dy * reach, angle };
+}
 
 const game = new Game();
 
@@ -72,8 +85,9 @@ function draw(): void {
   ctx.fillStyle = COLORS.background;
   ctx.fillRect(0, 0, SIZE, SIZE);
 
-  // The room itself: one octagon. Light sets how dark the floor looks.
-  octagon(ctx, CENTER, CENTER, RADIUS);
+  // The room itself: one square scene. Light sets how dark the floor looks.
+  ctx.beginPath();
+  ctx.rect(CENTER - HALF, CENTER - HALF, ROOM, ROOM);
   ctx.fillStyle = room.indoor ? COLORS.floorIndoor : COLORS.floorOutdoor;
   ctx.fill();
   ctx.fillStyle = `rgba(8, 8, 20, ${darkness(room.light)})`;
@@ -129,11 +143,9 @@ function ringSpot(i: number, n: number): { x: number; y: number } {
   return { x: CENTER + Math.cos(angle) * ring, y: CENTER + Math.sin(angle) * ring };
 }
 
-// A doorway cut into one side of the octagon.
+// A doorway in a wall, or across a corner for the diagonal exits.
 function drawSideExit(dir: Direction, state: "opening" | "closed" | "open"): void {
-  const angle = SIDE_ANGLE[dir]!;
-  const x = CENTER + Math.cos(angle) * APOTHEM;
-  const y = CENTER + Math.sin(angle) * APOTHEM;
+  const { x, y, angle } = exitSpot(dir);
 
   ctx.save();
   ctx.translate(x, y);
@@ -162,9 +174,9 @@ function drawSideExit(dir: Direction, state: "opening" | "closed" | "open"): voi
   }
   ctx.restore();
 
-  // The direction label sits just outside the wall.
-  const lx = CENTER + Math.cos(angle) * (APOTHEM + 24);
-  const ly = CENTER + Math.sin(angle) * (APOTHEM + 24);
+  // The direction label sits just outside the wall, or just outside the corner.
+  const lx = CENTER + Math.round(Math.cos(angle)) * (HALF + MARGIN / 2);
+  const ly = CENTER + Math.round(Math.sin(angle)) * (HALF + MARGIN / 2);
   ctx.fillStyle = COLORS.label;
   ctx.font = "bold 14px sans-serif";
   ctx.textAlign = "center";
@@ -226,24 +238,11 @@ function drawLabel(text: string, x: number, y: number): void {
   ctx.fillText(text, x, y);
 }
 
-// An octagon with its eight flat sides facing the eight compass directions.
-function octagon(c: CanvasRenderingContext2D, x: number, y: number, radius: number): void {
-  c.beginPath();
-  for (let i = 0; i < 8; i++) {
-    const a = Math.PI / 8 + (i * Math.PI) / 4;
-    const px = x + Math.cos(a) * radius;
-    const py = y + Math.sin(a) * radius;
-    if (i === 0) c.moveTo(px, py);
-    else c.lineTo(px, py);
-  }
-  c.closePath();
-}
-
 // ---- the map of explored rooms ----
-// Each room is a small octagon, joined by its exits. Only rooms on the current floor are shown.
+// Each room is a small square, joined by its exits. Only rooms on the current floor are shown.
 
 function drawWorldMap(): void {
-  const size = 12; // octagon radius in pixels
+  const size = 10; // half the width of each room's square, in pixels
   const gap = 34; // distance between room centers
   const here = positions[game.roomId];
   const cx = mapCanvas.width / 2;
@@ -271,9 +270,8 @@ function drawWorldMap(): void {
 
   for (const id of shown) {
     const p = toScreen(positions[id]);
-    octagon(mapCtx, p.x, p.y, size);
     mapCtx.fillStyle = id === game.roomId ? "#2f6fd6" : "#a39883";
-    mapCtx.fill();
+    mapCtx.fillRect(p.x - size, p.y - size, size * 2, size * 2);
     const exits = ROOMS[id].exits;
     if (exits.up || exits.down) {
       mapCtx.fillStyle = "#17161a";

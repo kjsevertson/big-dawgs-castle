@@ -1,7 +1,7 @@
 // The world: what rooms exist, what's in them, and how they connect.
 // This file is pure data and types. It knows nothing about drawing or the mouse.
 
-// Eight sides of the octagon, plus up and down.
+// Four walls and four corners, plus up and down.
 export type Direction =
   | "north" | "northeast" | "east" | "southeast"
   | "south" | "southwest" | "west" | "northwest"
