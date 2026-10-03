@@ -58,6 +58,12 @@ Clicking a thing sends `look well`, the same command a terminal player would typ
 
 To add a room, copy one in `ROOMS` in `world.ts`, change its details, and list its `exits`. Remember to add the matching exit back in the room it connects to.
 
+### Coordinates and planes
+
+Every room stores where it is: `plane`, `x`, `y` and `z`. East is +x, north is +y and up is +z. A plane is a separate world with its own coordinates, so two planes can each have a room at 0, 0, 0 without the map mixing them up. The map only shows rooms on your current plane and floor.
+
+When the page loads, `checkWorld()` in `world.ts` checks that every exit leads one step the right way and has an exit back. Any problems show up as warnings in the browser's developer console.
+
 ### Room qualities
 
 Every room also carries:

@@ -11,17 +11,16 @@ export const DIRECTIONS: Direction[] = [
   "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest", "up", "down",
 ];
 
-// How each direction moves you on the world map (x grows east, y grows south).
-// Up and down stay in place on the map but change floor.
+// How each direction changes a room's coordinates: x grows east, y grows north, z grows up.
 export const DIRECTION_STEP: Record<Direction, { dx: number; dy: number; dz: number }> = {
-  north: { dx: 0, dy: -1, dz: 0 },
-  northeast: { dx: 1, dy: -1, dz: 0 },
+  north: { dx: 0, dy: 1, dz: 0 },
+  northeast: { dx: 1, dy: 1, dz: 0 },
   east: { dx: 1, dy: 0, dz: 0 },
-  southeast: { dx: 1, dy: 1, dz: 0 },
-  south: { dx: 0, dy: 1, dz: 0 },
-  southwest: { dx: -1, dy: 1, dz: 0 },
+  southeast: { dx: 1, dy: -1, dz: 0 },
+  south: { dx: 0, dy: -1, dz: 0 },
+  southwest: { dx: -1, dy: -1, dz: 0 },
   west: { dx: -1, dy: 0, dz: 0 },
-  northwest: { dx: -1, dy: -1, dz: 0 },
+  northwest: { dx: -1, dy: 1, dz: 0 },
   up: { dx: 0, dy: 0, dz: 1 },
   down: { dx: 0, dy: 0, dz: -1 },
 };
@@ -64,6 +63,12 @@ export interface Thing {
 
 export interface Room {
   id: string;
+  // Where the room sits. Each plane is its own world with its own coordinates,
+  // so two planes can both have a room at 0, 0, 0 without the map mixing them up.
+  plane: string;
+  x: number; // east is +x
+  y: number; // north is +y
+  z: number; // up is +z
   name: string;
   description: string;
   sector: Sector;
@@ -78,6 +83,7 @@ export interface Room {
 export const ROOMS: Record<string, Room> = {
   gatehouse: {
     id: "gatehouse",
+    plane: "castle", x: 0, y: 0, z: 0,
     name: "The Gatehouse",
     description: "A cramped stone room under the castle wall. The courtyard lies to the north.",
     sector: "city", climate: "temperate", road: true, indoor: true, light: 35,
@@ -89,6 +95,7 @@ export const ROOMS: Record<string, Room> = {
   },
   courtyard: {
     id: "courtyard",
+    plane: "castle", x: 0, y: 1, z: 0,
     name: "The Courtyard",
     description: "An open yard of stone and grass. Ways lead off in many directions.",
     sector: "city", climate: "temperate", road: true, indoor: false, light: 80,
@@ -107,6 +114,7 @@ export const ROOMS: Record<string, Room> = {
   },
   greatHall: {
     id: "greatHall",
+    plane: "castle", x: 0, y: 2, z: 0,
     name: "The Great Hall",
     description: "A long hall with a feasting table. The kitchen is to the east.",
     sector: "city", climate: "temperate", indoor: true, light: 60,
@@ -123,6 +131,7 @@ export const ROOMS: Record<string, Room> = {
   },
   kitchen: {
     id: "kitchen",
+    plane: "castle", x: 1, y: 2, z: 0,
     name: "The Kitchen",
     description: "Smoke-stained walls and a long work table. It smells of old bread.",
     sector: "city", climate: "temperate", indoor: true, light: 50,
@@ -139,6 +148,7 @@ export const ROOMS: Record<string, Room> = {
   },
   pantry: {
     id: "pantry",
+    plane: "castle", x: 1, y: 3, z: 0,
     name: "The Pantry",
     description: "Shelves of jars and sacks. Somebody keeps this locked for a reason.",
     sector: "city", climate: "temperate", indoor: true, light: 15,
@@ -149,6 +159,7 @@ export const ROOMS: Record<string, Room> = {
   },
   garden: {
     id: "garden",
+    plane: "castle", x: -1, y: 0, z: 0,
     name: "The Herb Garden",
     description: "Overgrown beds of herbs inside a low wall. The tower rises to the north.",
     sector: "city", climate: "temperate", indoor: false, light: 85,
@@ -160,6 +171,7 @@ export const ROOMS: Record<string, Room> = {
   },
   towerBase: {
     id: "towerBase",
+    plane: "castle", x: -1, y: 1, z: 0,
     name: "Base of the Tower",
     description: "A tall, round room with stairs climbing up into darkness.",
     sector: "city", climate: "temperate", indoor: true, light: 20,
@@ -175,6 +187,7 @@ export const ROOMS: Record<string, Room> = {
   },
   towerTop: {
     id: "towerTop",
+    plane: "castle", x: -1, y: 1, z: 1,
     name: "Top of the Tower",
     description: "Wind whips across the battlements. You can see the whole castle from here.",
     sector: "city", climate: "temperate", indoor: false, light: 90,
@@ -185,6 +198,7 @@ export const ROOMS: Record<string, Room> = {
   },
   passage: {
     id: "passage",
+    plane: "castle", x: -1, y: 2, z: 0,
     name: "A Secret Passage",
     description: "A narrow, dusty passage hidden inside the castle wall.",
     sector: "city", climate: "temperate", indoor: true, light: 5,
@@ -200,20 +214,22 @@ export const ROOMS: Record<string, Room> = {
 
 export const STARTING_ROOM = "gatehouse";
 
-// Lay the rooms out on a world map by walking their exits from the start.
-// Returns each room's x, y and floor (z), used to draw the map of explored rooms.
-export function mapPositions(): Record<string, { x: number; y: number; z: number }> {
-  const positions: Record<string, { x: number; y: number; z: number }> = { [STARTING_ROOM]: { x: 0, y: 0, z: 0 } };
-  const queue = [STARTING_ROOM];
-  while (queue.length > 0) {
-    const id = queue.shift()!;
-    const here = positions[id];
-    for (const [dir, exit] of Object.entries(ROOMS[id].exits) as [Direction, Exit][]) {
-      if (positions[exit.to]) continue;
+// A check for world builders: every exit should lead to a room on the same plane
+// that sits one step away in that direction, with an exit leading back.
+// Returns a list of problems (empty when the world is consistent).
+export function checkWorld(): string[] {
+  const problems: string[] = [];
+  for (const room of Object.values(ROOMS)) {
+    for (const [dir, exit] of Object.entries(room.exits) as [Direction, Exit][]) {
+      const target = ROOMS[exit.to];
+      if (!target) { problems.push(`${room.id} ${dir} leads to missing room "${exit.to}"`); continue; }
       const step = DIRECTION_STEP[dir];
-      positions[exit.to] = { x: here.x + step.dx, y: here.y + step.dy, z: here.z + step.dz };
-      queue.push(exit.to);
+      if (target.plane !== room.plane) problems.push(`${room.id} ${dir} leads to another plane`);
+      else if (target.x !== room.x + step.dx || target.y !== room.y + step.dy || target.z !== room.z + step.dz) {
+        problems.push(`${room.id} ${dir} leads to ${target.id}, but its coordinates don't line up`);
+      }
+      if (target.exits[OPPOSITE[dir]]?.to !== room.id) problems.push(`${target.id} has no ${OPPOSITE[dir]} exit back to ${room.id}`);
     }
   }
-  return positions;
+  return problems;
 }

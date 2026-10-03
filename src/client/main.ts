@@ -3,7 +3,7 @@
 // terminal player would type, and the Game decides what happens.
 
 import { Game } from "../game/game";
-import { DIRECTION_STEP, Direction, ROOMS, Thing, ThingKind, mapPositions } from "../game/world";
+import { DIRECTION_STEP, Direction, ROOMS, Thing, ThingKind, checkWorld } from "../game/world";
 
 const ROOM = 528; // the room is a ROOM x ROOM square, the size of a backdrop image
 const MARGIN = 24; // space around the room for exit labels
@@ -65,7 +65,6 @@ const input = document.getElementById("command") as HTMLInputElement;
 
 const mapCanvas = document.getElementById("world-map") as HTMLCanvasElement;
 const mapCtx = mapCanvas.getContext("2d")!;
-const positions = mapPositions();
 
 canvas.width = SIZE;
 canvas.height = SIZE;
@@ -239,37 +238,39 @@ function drawLabel(text: string, x: number, y: number): void {
 }
 
 // ---- the map of explored rooms ----
-// Each room is a small square, joined by its exits. Only rooms on the current floor are shown.
+// Each room is a small square, joined by its exits, placed by its stored coordinates.
+// Only rooms on the player's current plane and floor are shown.
 
 function drawWorldMap(): void {
   const size = 10; // half the width of each room's square, in pixels
   const gap = 34; // distance between room centers
-  const here = positions[game.roomId];
+  const here = ROOMS[game.roomId];
   const cx = mapCanvas.width / 2;
   const cy = mapCanvas.height / 2;
-  const toScreen = (p: { x: number; y: number }) => ({ x: cx + (p.x - here.x) * gap, y: cy + (p.y - here.y) * gap });
+  // North is +y in the world but up the screen, so y is flipped.
+  const toScreen = (p: { x: number; y: number }) => ({ x: cx + (p.x - here.x) * gap, y: cy - (p.y - here.y) * gap });
 
   mapCtx.fillStyle = "#222127";
   mapCtx.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
 
-  const shown = [...game.visited].filter((id) => positions[id].z === here.z);
+  const shown = [...game.visited].filter((id) => ROOMS[id].plane === here.plane && ROOMS[id].z === here.z);
 
   mapCtx.strokeStyle = "#6d6352";
   mapCtx.lineWidth = 3;
   for (const id of shown) {
-    const from = toScreen(positions[id]);
+    const from = toScreen(ROOMS[id]);
     for (const dir of Object.keys(ROOMS[id].exits) as Direction[]) {
       const step = DIRECTION_STEP[dir];
       if (step.dz !== 0 || !game.knowsExit(id, dir)) continue;
       mapCtx.beginPath();
       mapCtx.moveTo(from.x, from.y);
-      mapCtx.lineTo(from.x + (step.dx * gap) / 2, from.y + (step.dy * gap) / 2);
+      mapCtx.lineTo(from.x + (step.dx * gap) / 2, from.y - (step.dy * gap) / 2);
       mapCtx.stroke();
     }
   }
 
   for (const id of shown) {
-    const p = toScreen(positions[id]);
+    const p = toScreen(ROOMS[id]);
     mapCtx.fillStyle = id === game.roomId ? "#2f6fd6" : "#a39883";
     mapCtx.fillRect(p.x - size, p.y - size, size * 2, size * 2);
     const exits = ROOMS[id].exits;
@@ -338,6 +339,8 @@ input.addEventListener("keydown", (e) => {
 });
 
 // ---- start ----
+
+for (const problem of checkWorld()) console.warn(`World check: ${problem}`);
 
 print(["Welcome to Big Dawg's Castle.", "Click a doorway to go through it or open its door, click things to look at them, or type commands below (try \"help\")."]);
 print(game.look());
