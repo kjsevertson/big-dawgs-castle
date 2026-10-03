@@ -47,7 +47,10 @@ export interface Door {
 
 export interface Exit {
   to: string; // the room id this exit leads to
-  door?: Door;
+  // Open air: the two rooms are parts of one bigger space, with no wall between them
+  // (say, one great hall drawn as six rooms). Without this, the exit is a doorway in a wall.
+  open?: boolean;
+  door?: Door; // only a doorway can hold a door
 }
 
 // Something in a room you can interact with. You never walk over to it:
@@ -103,12 +106,12 @@ export const ROOMS: Record<string, Room> = {
       north: { to: "greatHall" },
       northeast: { to: "kitchen" },
       south: { to: "gatehouse", door: { closed: true } },
+      east: { to: "courtyardEast", open: true },
       west: { to: "towerBase" },
-      southwest: { to: "garden" },
+      southwest: { to: "garden", open: true },
     },
     contents: [
       { name: "an old well", keywords: ["well"], kind: "feature", description: "An old stone well. You hear water far below." },
-      { name: "a hay cart", keywords: ["cart", "hay"], kind: "feature", description: "A cart half full of damp hay, one wheel missing." },
       { name: "a stray dog", keywords: ["dog"], kind: "creature", description: "A scruffy brown dog. It watches you, hoping for food." },
     ],
   },
@@ -129,6 +132,20 @@ export const ROOMS: Record<string, Room> = {
       { name: "a tattered banner", keywords: ["banner"], kind: "feature", description: "A faded banner showing a large black dog on a red field." },
     ],
   },
+  courtyardEast: {
+    id: "courtyardEast",
+    plane: "castle", x: 1, y: 1, z: 0,
+    name: "The Courtyard, East Side",
+    description: "The east end of the courtyard, under the kitchen windows. The yard opens up to the west.",
+    sector: "city", climate: "temperate", road: true, indoor: false, light: 80,
+    exits: {
+      west: { to: "courtyard", open: true },
+      north: { to: "kitchen" },
+    },
+    contents: [
+      { name: "a hay cart", keywords: ["cart", "hay"], kind: "feature", description: "A cart half full of damp hay, one wheel missing." },
+    ],
+  },
   kitchen: {
     id: "kitchen",
     plane: "castle", x: 1, y: 2, z: 0,
@@ -138,6 +155,7 @@ export const ROOMS: Record<string, Room> = {
     exits: {
       west: { to: "greatHall", door: { closed: true } },
       southwest: { to: "courtyard" },
+      south: { to: "courtyardEast" },
       north: { to: "pantry", door: { closed: true, locked: true, trapped: true } },
     },
     contents: [
@@ -163,7 +181,7 @@ export const ROOMS: Record<string, Room> = {
     name: "The Herb Garden",
     description: "Overgrown beds of herbs inside a low wall. The tower rises to the north.",
     sector: "city", climate: "temperate", indoor: false, light: 85,
-    exits: { northeast: { to: "courtyard" }, north: { to: "towerBase" } },
+    exits: { northeast: { to: "courtyard", open: true }, north: { to: "towerBase" } },
     contents: [
       { name: "a patch of mint", keywords: ["mint", "patch"], kind: "feature", description: "Mint has taken over half the garden. It smells wonderful." },
       { name: "a stone bench", keywords: ["bench"], kind: "feature", description: "A mossy stone bench in the sun." },
@@ -228,7 +246,10 @@ export function checkWorld(): string[] {
       else if (target.x !== room.x + step.dx || target.y !== room.y + step.dy || target.z !== room.z + step.dz) {
         problems.push(`${room.id} ${dir} leads to ${target.id}, but its coordinates don't line up`);
       }
-      if (target.exits[OPPOSITE[dir]]?.to !== room.id) problems.push(`${target.id} has no ${OPPOSITE[dir]} exit back to ${room.id}`);
+      const back = target.exits[OPPOSITE[dir]];
+      if (back?.to !== room.id) problems.push(`${target.id} has no ${OPPOSITE[dir]} exit back to ${room.id}`);
+      else if (!!back.open !== !!exit.open) problems.push(`${room.id} ${dir} and its way back disagree about being open air`);
+      if (exit.open && exit.door) problems.push(`${room.id} ${dir} is open air, so it can't have a door`);
     }
   }
   return problems;

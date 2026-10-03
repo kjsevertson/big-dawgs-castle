@@ -68,6 +68,7 @@ export class Game {
     const dir = DIRECTION_WORDS[words];
     const exit = dir && this.knownExit(dir);
     if (dir && exit) {
+      if (exit.open) return [`The space opens up to the ${dir}.`];
       if (!exit.door) return [`An opening leads ${dir}.`];
       return [`A door leads ${dir}. It is ${exit.door.closed ? "closed" : "open"}.`];
     }

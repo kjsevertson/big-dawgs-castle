@@ -91,13 +91,14 @@ function draw(): void {
   ctx.fill();
   ctx.fillStyle = `rgba(8, 8, 20, ${darkness(room.light)})`;
   ctx.fill();
-  ctx.lineWidth = 16;
-  ctx.strokeStyle = COLORS.wall;
-  ctx.stroke();
+
+  const openAir = new Set(game.visibleExits().filter(([, exit]) => exit.open).map(([dir]) => dir));
+  drawWalls(openAir);
 
   for (const [dir, exit] of game.visibleExits()) {
     if (dir === "up" || dir === "down") continue;
-    drawSideExit(dir, exit.door ? (exit.door.closed ? "closed" : "open") : "opening");
+    if (exit.open) drawOpenExit(dir);
+    else drawSideExit(dir, exit.door ? (exit.door.closed ? "closed" : "open") : "opening");
   }
 
   // Things in the room, plus any stairs, sit in a ring around the middle.
@@ -142,6 +143,53 @@ function ringSpot(i: number, n: number): { x: number; y: number } {
   return { x: CENTER + Math.cos(angle) * ring, y: CENTER + Math.sin(angle) * ring };
 }
 
+// The four walls. An open-air exit leaves its wall out (or its corner, for a diagonal),
+// so the floor runs straight on into the next room.
+function drawWalls(openAir: Set<Direction>): void {
+  const L = CENTER - HALF, T = CENTER - HALF, Rt = CENTER + HALF, B = CENTER + HALF;
+  const gap = 70; // how much wall an open corner removes from each side
+  const walls: { dir: Direction; from: [number, number]; to: [number, number]; startCorner: Direction; endCorner: Direction }[] = [
+    { dir: "north", from: [L, T], to: [Rt, T], startCorner: "northwest", endCorner: "northeast" },
+    { dir: "east", from: [Rt, T], to: [Rt, B], startCorner: "northeast", endCorner: "southeast" },
+    { dir: "south", from: [Rt, B], to: [L, B], startCorner: "southeast", endCorner: "southwest" },
+    { dir: "west", from: [L, B], to: [L, T], startCorner: "southwest", endCorner: "northwest" },
+  ];
+  ctx.lineWidth = 16;
+  ctx.strokeStyle = COLORS.wall;
+  ctx.lineCap = "square";
+  for (const w of walls) {
+    if (openAir.has(w.dir)) continue;
+    const [x1, y1] = w.from;
+    const [x2, y2] = w.to;
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    const ux = (x2 - x1) / len, uy = (y2 - y1) / len;
+    const a = openAir.has(w.startCorner) ? gap : 0;
+    const b = openAir.has(w.endCorner) ? gap : 0;
+    ctx.beginPath();
+    ctx.moveTo(x1 + ux * a, y1 + uy * a);
+    ctx.lineTo(x2 - ux * b, y2 - uy * b);
+    ctx.stroke();
+  }
+  ctx.lineCap = "butt";
+}
+
+// Open air: no doorway to draw, just the label and a place to click.
+function drawOpenExit(dir: Direction): void {
+  const { x, y, angle } = exitSpot(dir);
+  drawExitLabel(dir, angle);
+  hotspots.push({ x, y, r: 44, command: dir });
+}
+
+function drawExitLabel(dir: Direction, angle: number): void {
+  const lx = CENTER + Math.round(Math.cos(angle)) * (HALF + MARGIN / 2);
+  const ly = CENTER + Math.round(Math.sin(angle)) * (HALF + MARGIN / 2);
+  ctx.fillStyle = COLORS.label;
+  ctx.font = "bold 14px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(EXIT_LABELS[dir], lx, ly);
+}
+
 // A doorway in a wall, or across a corner for the diagonal exits.
 function drawSideExit(dir: Direction, state: "opening" | "closed" | "open"): void {
   const { x, y, angle } = exitSpot(dir);
@@ -174,13 +222,7 @@ function drawSideExit(dir: Direction, state: "opening" | "closed" | "open"): voi
   ctx.restore();
 
   // The direction label sits just outside the wall, or just outside the corner.
-  const lx = CENTER + Math.round(Math.cos(angle)) * (HALF + MARGIN / 2);
-  const ly = CENTER + Math.round(Math.sin(angle)) * (HALF + MARGIN / 2);
-  ctx.fillStyle = COLORS.label;
-  ctx.font = "bold 14px sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(EXIT_LABELS[dir], lx, ly);
+  drawExitLabel(dir, angle);
 
   hotspots.push({ x, y, r: 38, command: game.commandForExit(dir) });
 }
@@ -262,6 +304,7 @@ function drawWorldMap(): void {
     for (const dir of Object.keys(ROOMS[id].exits) as Direction[]) {
       const step = DIRECTION_STEP[dir];
       if (step.dz !== 0 || !game.knowsExit(id, dir)) continue;
+      mapCtx.lineWidth = ROOMS[id].exits[dir]?.open ? 9 : 3; // open air reads as one joined space
       mapCtx.beginPath();
       mapCtx.moveTo(from.x, from.y);
       mapCtx.lineTo(from.x + (step.dx * gap) / 2, from.y - (step.dy * gap) / 2);
