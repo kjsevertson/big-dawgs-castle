@@ -33,7 +33,7 @@ export const OPPOSITE: Record<Direction, Direction> = {
 };
 
 // Every kind of tile a room can be built from.
-export type TileKind = "void" | "wall" | "floor" | "grass" | "table" | "well" | "stairsUp" | "stairsDown" | "exit";
+export type TileKind = "void" | "wall" | "floor" | "grass" | "table" | "well" | "stairsUp" | "stairsDown" | "exit" | "doorClosed" | "doorOpen";
 
 export interface TileInfo {
   kind: TileKind;
@@ -59,15 +59,38 @@ const CORNER_CUT = 4; // how many tiles are cut off each corner to make the octa
 const LAST = ROOM_SIZE - 1;
 const MID = Math.floor(ROOM_SIZE / 2);
 
+// ---- room qualities ----
+// What each of these does to play is decided later. For now rooms just carry them.
+
+export type Sector = "city" | "forest" | "swamp" | "mountain" | "hill" | "plains" | "freshwater" | "river" | "sea";
+export type Climate = "temperate" | "arctic" | "tropical" | "desert";
+
+// A door sits on an exit. The room holds its exits, and each exit can hold a door.
+export interface Door {
+  closed: boolean;
+  locked?: boolean;  // can't be opened without its key
+  secret?: boolean;  // hidden until someone searches for it
+  trapped?: boolean; // springs something when opened (what it does comes later)
+}
+
+export interface Exit {
+  to: string; // the room id this exit leads to
+  door?: Door;
+}
+
 export interface Room {
   id: string;
   name: string;
   description: string;
+  sector: Sector;
+  climate: Climate;
+  road?: boolean;   // a road runs through this room, whatever its sector
+  indoor: boolean;  // indoor rooms don't feel weather, daylight or night
+  light: number;    // 0 is perfect darkness, 100 is the brightest summer noon
   // ROOM_SIZE strings of ROOM_SIZE characters, using the keys of TILES.
   // Only the inside matters: the octagon's walls are added automatically.
   layout: string[];
-  // Where each exit leads, by room id.
-  exits: Partial<Record<Direction, string>>;
+  exits: Partial<Record<Direction, Exit>>;
 }
 
 // Is (x, y) inside the octagon at all?
@@ -112,15 +135,18 @@ function findTile(room: Room, char: string): { x: number; y: number } | null {
 }
 
 // What is at (x, y)? The octagon shape comes first, then exits, then the layout.
-export function tileAt(room: Room, x: number, y: number): { info: TileInfo; exit?: Direction } {
+// `hidden` lists exits this player can't see yet (secret doors not found).
+export function tileAt(room: Room, x: number, y: number, hidden: Direction[] = []): { info: TileInfo; exit?: Direction } {
   if (!insideOctagon(x, y)) return { info: TILES[" "] };
 
-  for (const dir of Object.keys(room.exits) as Direction[]) {
+  for (const [dir, exit] of Object.entries(room.exits) as [Direction, Exit][]) {
+    if (hidden.includes(dir)) continue;
     const pos = exitTile(room, dir);
-    if (pos && pos.x === x && pos.y === y) {
-      if (dir === "up" || dir === "down") return { info: TILES[room.layout[y][x]], exit: dir };
-      return { info: { kind: "exit", walkable: true, description: `An opening leading ${dir}.` }, exit: dir };
-    }
+    if (!pos || pos.x !== x || pos.y !== y) continue;
+    if (dir === "up" || dir === "down") return { info: TILES[room.layout[y][x]], exit: dir };
+    if (exit.door?.closed) return { info: { kind: "doorClosed", walkable: false, description: `A closed door leading ${dir}.` }, exit: dir };
+    if (exit.door) return { info: { kind: "doorOpen", walkable: true, description: `An open door leading ${dir}.` }, exit: dir };
+    return { info: { kind: "exit", walkable: true, description: `An opening leading ${dir}.` }, exit: dir };
   }
 
   if (onOctagonEdge(x, y)) return { info: TILES["#"] };
@@ -132,6 +158,7 @@ export const ROOMS: Record<string, Room> = {
     id: "gatehouse",
     name: "The Gatehouse",
     description: "A cramped stone room under the castle wall. The courtyard opens to the north.",
+    sector: "city", climate: "temperate", road: true, indoor: true, light: 35,
     layout: [
       "...........",
       "...........",
@@ -145,12 +172,13 @@ export const ROOMS: Record<string, Room> = {
       "...........",
       "...........",
     ],
-    exits: { north: "courtyard" },
+    exits: { north: { to: "courtyard", door: { closed: true } } },
   },
   courtyard: {
     id: "courtyard",
     name: "The Courtyard",
     description: "An open yard of stone and grass with a well in the middle. Ways lead off in many directions.",
+    sector: "city", climate: "temperate", road: true, indoor: false, light: 80,
     layout: [
       "...........",
       "...,,,,,...",
@@ -164,12 +192,19 @@ export const ROOMS: Record<string, Room> = {
       "...,,,,,...",
       "...........",
     ],
-    exits: { north: "greatHall", northeast: "kitchen", south: "gatehouse", west: "towerBase", southwest: "garden" },
+    exits: {
+      north: { to: "greatHall" },
+      northeast: { to: "kitchen" },
+      south: { to: "gatehouse", door: { closed: true } },
+      west: { to: "towerBase" },
+      southwest: { to: "garden" },
+    },
   },
   greatHall: {
     id: "greatHall",
     name: "The Great Hall",
     description: "A long hall with feasting tables. The kitchen is to the east.",
+    sector: "city", climate: "temperate", indoor: true, light: 60,
     layout: [
       "...........",
       "...........",
@@ -183,12 +218,17 @@ export const ROOMS: Record<string, Room> = {
       "...........",
       "...........",
     ],
-    exits: { south: "courtyard", east: "kitchen" },
+    exits: {
+      south: { to: "courtyard" },
+      east: { to: "kitchen", door: { closed: true } },
+      west: { to: "passage", door: { closed: true, secret: true } },
+    },
   },
   kitchen: {
     id: "kitchen",
     name: "The Kitchen",
     description: "Smoke-stained walls and a long work table. It smells of old bread.",
+    sector: "city", climate: "temperate", indoor: true, light: 50,
     layout: [
       "...........",
       "...........",
@@ -202,12 +242,17 @@ export const ROOMS: Record<string, Room> = {
       "...........",
       "...........",
     ],
-    exits: { west: "greatHall", southwest: "courtyard" },
+    exits: {
+      west: { to: "greatHall", door: { closed: true } },
+      southwest: { to: "courtyard" },
+      north: { to: "pantry", door: { closed: true, locked: true, trapped: true } },
+    },
   },
   garden: {
     id: "garden",
     name: "The Herb Garden",
     description: "Overgrown beds of herbs inside a low wall. The tower rises to the north.",
+    sector: "city", climate: "temperate", indoor: false, light: 85,
     layout: [
       "...........",
       "...........",
@@ -221,12 +266,13 @@ export const ROOMS: Record<string, Room> = {
       "...........",
       "...........",
     ],
-    exits: { northeast: "courtyard", north: "towerBase" },
+    exits: { northeast: { to: "courtyard" }, north: { to: "towerBase" } },
   },
   towerBase: {
     id: "towerBase",
     name: "Base of the Tower",
     description: "A tall room with stairs climbing up into darkness.",
+    sector: "city", climate: "temperate", indoor: true, light: 20,
     layout: [
       "...........",
       "...........",
@@ -240,12 +286,18 @@ export const ROOMS: Record<string, Room> = {
       "...........",
       "...........",
     ],
-    exits: { east: "courtyard", south: "garden", up: "towerTop" },
+    exits: {
+      east: { to: "courtyard" },
+      south: { to: "garden" },
+      north: { to: "passage" },
+      up: { to: "towerTop" },
+    },
   },
   towerTop: {
     id: "towerTop",
     name: "Top of the Tower",
     description: "Wind whips across the battlements. You can see the whole castle from here.",
+    sector: "city", climate: "temperate", indoor: false, light: 90,
     layout: [
       "...........",
       "...........",
@@ -259,7 +311,26 @@ export const ROOMS: Record<string, Room> = {
       "...........",
       "...........",
     ],
-    exits: { down: "towerBase" },
+    exits: { down: { to: "towerBase" } },
+  },
+  passage: {
+    id: "passage",
+    name: "A Secret Passage",
+    description: "A narrow, dusty passage hidden inside the castle wall.",
+    sector: "city", climate: "temperate", indoor: true, light: 5,
+    layout: Array(11).fill("..........."),
+    exits: {
+      east: { to: "greatHall", door: { closed: true, secret: true } },
+      south: { to: "towerBase" },
+    },
+  },
+  pantry: {
+    id: "pantry",
+    name: "The Pantry",
+    description: "Shelves of jars and sacks. Somebody keeps this locked for a reason.",
+    sector: "city", climate: "temperate", indoor: true, light: 15,
+    layout: Array(11).fill("..........."),
+    exits: { south: { to: "kitchen", door: { closed: true, locked: true, trapped: true } } },
   },
 };
 
@@ -273,7 +344,8 @@ export function mapPositions(): Record<string, { x: number; y: number; z: number
   while (queue.length > 0) {
     const id = queue.shift()!;
     const here = positions[id];
-    for (const [dir, targetId] of Object.entries(ROOMS[id].exits) as [Direction, string][]) {
+    for (const [dir, exit] of Object.entries(ROOMS[id].exits) as [Direction, Exit][]) {
+      const targetId = exit.to;
       if (positions[targetId]) continue;
       const step = DIRECTION_STEP[dir];
       positions[targetId] = { x: here.x + step.dx, y: here.y + step.dy, z: here.z + step.dz };

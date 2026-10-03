@@ -21,7 +21,10 @@ Other commands:
 - **Click the floor** to walk there.
 - **Click an exit** (the dark doorways marked N, NE, E and so on) to walk through it.
 - **Click a thing** (a table, the well, a wall) to look at it.
-- **Type commands** in the box: `north` or `n`, `northeast` or `ne`, `up`, `down`, `look`, `help`.
+- **Click a closed door** to walk up to it and open it.
+- **Type commands** in the box: `north` or `n`, `northeast` or `ne`, `up`, `down`, `look`, `open north`, `close north`, `search`, `help`.
+
+There's a locked door in the kitchen (no keys yet) and a secret door somewhere in the Great Hall. Try `search`.
 
 ## How the code is organised
 
@@ -42,6 +45,31 @@ Keeping the rules separate from the screen matters most. Later, `game.ts` moves 
 Every room is drawn on an 11 × 11 grid of tiles. Four tiles are cut off each corner to make an octagon, and its outer ring becomes wall. Each of the eight sides has one spot where a doorway can be cut, for north, northeast, east, southeast, south, southwest, west and northwest. Up and down exits are stairs inside the room.
 
 To add a room, copy one in `ROOMS` in `world.ts`, change the picture in `layout` (`.` floor, `,` grass, `T` table, `o` well, `<` stairs up, `>` stairs down), and list its `exits`. Remember to add the matching exit back in the room it connects to.
+
+### Room qualities
+
+Every room also carries:
+
+- `sector`: city, forest, swamp, mountain, hill, plains, freshwater, river or sea
+- `climate`: temperate, arctic, tropical or desert
+- `road`: whether a road runs through it
+- `indoor`: indoor rooms won't feel weather, daylight or night
+- `light`: from 0 (perfect darkness) to 100 (summer noon). The screen dims darker rooms.
+
+What most of these do to play gets decided later.
+
+### Exits and doors
+
+A room holds its exits, and each exit can hold a door:
+
+```ts
+exits: {
+  north: { to: "courtyard", door: { closed: true } },
+  west:  { to: "passage",   door: { closed: true, secret: true } },
+}
+```
+
+A door has two sides, one in each room. Opening or closing one side does the same to the other. Door flags are `locked` (won't open), `secret` (hidden until you `search`), and `trapped` (marked for now, but traps come later).
 
 ### Walking
 

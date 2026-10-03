@@ -2,7 +2,7 @@
 // It never decides what's allowed. It asks the Game and draws the answer.
 
 import { Game, Position } from "../game/game";
-import { DIRECTION_STEP, Direction, ROOMS, ROOM_SIZE, TileKind, mapPositions, tileAt } from "../game/world";
+import { DIRECTION_STEP, Direction, ROOMS, ROOM_SIZE, TileKind, mapPositions } from "../game/world";
 
 const TILE = 52; // pixels per tile on screen
 const STEP_MS = 110; // how long each step of walking takes
@@ -17,6 +17,8 @@ const COLORS: Record<TileKind, string> = {
   stairsUp: "#c2b59b",
   stairsDown: "#c2b59b",
   exit: "#2a2622",
+  doorClosed: "#6b4423",
+  doorOpen: "#2a2622",
 };
 
 const game = new Game();
@@ -45,12 +47,14 @@ function draw(): void {
 
   for (let y = 0; y < ROOM_SIZE; y++) {
     for (let x = 0; x < ROOM_SIZE; x++) {
-      const tile = tileAt(room, x, y);
+      const tile = game.tileAt(x, y);
       drawTile(x, y, tile.info.kind, tile.exit);
     }
   }
 
-  if (hover && tileAt(room, hover.x, hover.y).info.kind !== "void") {
+  drawDarkness(room.light);
+
+  if (hover && game.tileAt(hover.x, hover.y).info.kind !== "void") {
     ctx.strokeStyle = "rgba(255, 240, 180, 0.9)";
     ctx.lineWidth = 3;
     ctx.strokeRect(hover.x * TILE + 2, hover.y * TILE + 2, TILE - 4, TILE - 4);
@@ -96,6 +100,16 @@ function drawTile(x: number, y: number, kind: TileKind, exit?: Direction): void 
     for (let i = 0; i < 4; i++) ctx.fillRect(px + 8, py + 10 + i * 12, TILE - 16, 5);
   }
 
+  if (kind === "doorClosed") {
+    ctx.fillStyle = "#3e2712";
+    ctx.fillRect(px + 6, py + 6, TILE - 12, TILE - 12);
+    ctx.fillStyle = COLORS.doorClosed;
+    ctx.fillRect(px + 9, py + 9, TILE - 18, TILE - 18);
+  } else if (kind === "doorOpen") {
+    ctx.fillStyle = COLORS.doorClosed;
+    ctx.fillRect(px + 4, py + 4, 6, TILE - 8);
+  }
+
   if (exit) {
     ctx.fillStyle = "#f0d98c";
     ctx.font = "bold 13px sans-serif";
@@ -103,6 +117,15 @@ function drawTile(x: number, y: number, kind: TileKind, exit?: Direction): void 
     ctx.textBaseline = "middle";
     ctx.fillText(EXIT_LABELS[exit], px + TILE / 2, py + TILE / 2);
   }
+}
+
+// Light runs from 0 (perfect dark) to 100 (summer noon). Dim rooms get a dark veil.
+// Below 100 the veil gets thicker, but never fully black, so you can still play.
+function drawDarkness(light: number): void {
+  const veil = Math.min(0.8, (1 - light / 100) * 0.85);
+  if (veil <= 0) return;
+  ctx.fillStyle = `rgba(8, 8, 20, ${veil})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
 function drawPlayer(pos: Position): void {
@@ -138,7 +161,7 @@ function drawWorldMap(): void {
     const from = toScreen(positions[id]);
     for (const dir of Object.keys(ROOMS[id].exits) as Direction[]) {
       const step = DIRECTION_STEP[dir];
-      if (step.dz !== 0) continue;
+      if (step.dz !== 0 || !game.knowsExit(id, dir)) continue;
       mapCtx.beginPath();
       mapCtx.moveTo(from.x, from.y);
       mapCtx.lineTo(from.x + (step.dx * gap) / 2, from.y + (step.dy * gap) / 2);
@@ -228,14 +251,15 @@ canvas.addEventListener("click", (e) => {
   const { x, y } = tileFromMouse(e);
   const result = game.clickTile(x, y);
   print(result.messages);
-  // Clicking an exit is the same as typing its direction, once you get there.
-  walk(result.path, result.exit ? () => runCommand(result.exit!) : undefined);
+  // Clicking an exit or a door is the same as typing the command, once you get there.
+  walk(result.path, result.command ? () => runCommand(result.command!) : undefined);
 });
 
 canvas.addEventListener("mousemove", (e) => {
   hover = tileFromMouse(e);
-  const kind = tileAt(game.room, hover.x, hover.y).info;
-  canvas.style.cursor = kind.kind === "void" ? "default" : kind.walkable ? "pointer" : "help";
+  const kind = game.tileAt(hover.x, hover.y).info;
+  const clickable = kind.walkable || kind.kind === "doorClosed";
+  canvas.style.cursor = kind.kind === "void" ? "default" : clickable ? "pointer" : "help";
   draw();
 });
 
