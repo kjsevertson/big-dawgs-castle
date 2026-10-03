@@ -3,7 +3,7 @@
 // terminal player would type, and the Game decides what happens.
 
 import { Game } from "../game/game";
-import { DIRECTION_STEP, Direction, ROOMS, Thing, ThingKind, checkWorld } from "../game/world";
+import { DIRECTION_STEP, Direction, ROOMS, Room, Sector, Side, Thing, ThingKind, Wall, WallMaterial, checkWorld, isOpenAir, wallAt } from "../game/world";
 
 const ROOM = 528; // the room is a ROOM x ROOM square, the size of a backdrop image
 const MARGIN = 24; // space around the room for exit labels
@@ -15,9 +15,7 @@ const TOKEN = 30; // radius of each thing in the room
 
 const COLORS = {
   background: "#17161a",
-  wall: "#4a4e57",
   floorIndoor: "#8d8578",
-  floorOutdoor: "#8a9468",
   opening: "#211f1c",
   door: "#7a4e28",
   doorEdge: "#3e2712",
@@ -26,6 +24,34 @@ const COLORS = {
   hover: "rgba(255, 240, 180, 0.95)",
   stairs: "#6d6352",
 };
+
+// Stand-in colors, used until there's art for a floor or a wall.
+const SECTOR_COLORS: Record<Sector, string> = {
+  city: "#8a8a7a", forest: "#4f6b3a", swamp: "#4d5a3e", mountain: "#7d7a74", hill: "#7f8f55",
+  plains: "#a3a865", freshwater: "#4f7fa0", river: "#46789a", sea: "#2f5f86",
+};
+
+const WALL_COLORS: Record<WallMaterial, string> = {
+  none: "transparent", stone: "#4a4e57", brick: "#7a3b2e", wood: "#6b4a2b",
+  rock: "#5a5148", hedge: "#3e5a2e", palisade: "#7a5a34",
+};
+
+// ---- art ----
+// Art files live in public/art. When one exists it's used; until then the stand-in colors are.
+//   floors/<sector>-outdoor.png and floors/<sector>-indoor.png   (528 x 528)
+//   walls/<material>.png                                          (a tile that repeats along the wall)
+
+const images = new Map<string, HTMLImageElement | null>();
+
+function art(path: string): HTMLImageElement | undefined {
+  if (!images.has(path)) {
+    const img = new Image();
+    images.set(path, null);
+    img.onload = () => { images.set(path, img); draw(); };
+    img.src = `art/${path}`;
+  }
+  return images.get(path) ?? undefined;
+}
 
 const THING_COLORS: Record<ThingKind, string> = {
   feature: "#5d6b78",
@@ -85,19 +111,14 @@ function draw(): void {
   ctx.fillRect(0, 0, SIZE, SIZE);
 
   // The room itself: one square scene. Light sets how dark the floor looks.
-  ctx.beginPath();
-  ctx.rect(CENTER - HALF, CENTER - HALF, ROOM, ROOM);
-  ctx.fillStyle = room.indoor ? COLORS.floorIndoor : COLORS.floorOutdoor;
-  ctx.fill();
+  drawFloor(room);
   ctx.fillStyle = `rgba(8, 8, 20, ${darkness(room.light)})`;
-  ctx.fill();
-
-  const openAir = new Set(game.visibleExits().filter(([, exit]) => exit.open).map(([dir]) => dir));
-  drawWalls(openAir);
+  ctx.fillRect(CENTER - HALF, CENTER - HALF, ROOM, ROOM);
+  drawWalls(room);
 
   for (const [dir, exit] of game.visibleExits()) {
     if (dir === "up" || dir === "down") continue;
-    if (exit.open) drawOpenExit(dir);
+    if (isOpenAir(room, dir)) drawOpenExit(dir);
     else drawSideExit(dir, exit.door ? (exit.door.closed ? "closed" : "open") : "opening");
   }
 
@@ -143,33 +164,50 @@ function ringSpot(i: number, n: number): { x: number; y: number } {
   return { x: CENTER + Math.cos(angle) * ring, y: CENTER + Math.sin(angle) * ring };
 }
 
-// The four walls. An open-air exit leaves its wall out (or its corner, for a diagonal),
-// so the floor runs straight on into the next room.
-function drawWalls(openAir: Set<Direction>): void {
-  const L = CENTER - HALF, T = CENTER - HALF, Rt = CENTER + HALF, B = CENTER + HALF;
-  const gap = 70; // how much wall an open corner removes from each side
-  const walls: { dir: Direction; from: [number, number]; to: [number, number]; startCorner: Direction; endCorner: Direction }[] = [
-    { dir: "north", from: [L, T], to: [Rt, T], startCorner: "northwest", endCorner: "northeast" },
-    { dir: "east", from: [Rt, T], to: [Rt, B], startCorner: "northeast", endCorner: "southeast" },
-    { dir: "south", from: [Rt, B], to: [L, B], startCorner: "southeast", endCorner: "southwest" },
-    { dir: "west", from: [L, B], to: [L, T], startCorner: "southwest", endCorner: "northwest" },
-  ];
-  ctx.lineWidth = 16;
-  ctx.strokeStyle = COLORS.wall;
-  ctx.lineCap = "square";
-  for (const w of walls) {
-    if (openAir.has(w.dir)) continue;
-    const [x1, y1] = w.from;
-    const [x2, y2] = w.to;
-    const len = Math.hypot(x2 - x1, y2 - y1);
-    const ux = (x2 - x1) / len, uy = (y2 - y1) / len;
-    const a = openAir.has(w.startCorner) ? gap : 0;
-    const b = openAir.has(w.endCorner) ? gap : 0;
-    ctx.beginPath();
-    ctx.moveTo(x1 + ux * a, y1 + uy * a);
-    ctx.lineTo(x2 - ux * b, y2 - uy * b);
-    ctx.stroke();
+// The floor: art for this sector, indoor or outdoor, if there is any.
+function drawFloor(room: Room): void {
+  const floor = art(`floors/${room.sector}-${room.indoor ? "indoor" : "outdoor"}.png`);
+  if (floor) {
+    ctx.drawImage(floor, CENTER - HALF, CENTER - HALF, ROOM, ROOM);
+  } else {
+    ctx.fillStyle = room.indoor ? COLORS.floorIndoor : SECTOR_COLORS[room.sector];
+    ctx.fillRect(CENTER - HALF, CENTER - HALF, ROOM, ROOM);
   }
+}
+
+// The walls. Each of the four edges is drawn in three pieces: the corner it starts at,
+// its middle, and the corner it ends at. Each piece uses its own wall, so a corner can be
+// open air while the walls beside it stand. Taller walls are drawn thicker.
+function drawWalls(room: Room): void {
+  const L = CENTER - HALF, T = CENTER - HALF, Rt = CENTER + HALF, B = CENTER + HALF;
+  const corner = 70; // how much of each edge belongs to the corner
+  const edges: { side: Side; from: [number, number]; to: [number, number]; start: Side; end: Side }[] = [
+    { side: "north", from: [L, T], to: [Rt, T], start: "northwest", end: "northeast" },
+    { side: "east", from: [Rt, T], to: [Rt, B], start: "northeast", end: "southeast" },
+    { side: "south", from: [Rt, B], to: [L, B], start: "southeast", end: "southwest" },
+    { side: "west", from: [L, B], to: [L, T], start: "southwest", end: "northwest" },
+  ];
+  for (const e of edges) {
+    const [x1, y1] = e.from;
+    const [x2, y2] = e.to;
+    const ux = Math.sign(x2 - x1), uy = Math.sign(y2 - y1);
+    const at = (d: number): [number, number] => [x1 + ux * d, y1 + uy * d];
+    drawWallPiece(wallAt(room, e.start), at(0), at(corner));
+    drawWallPiece(wallAt(room, e.side), at(corner), at(ROOM - corner));
+    drawWallPiece(wallAt(room, e.end), at(ROOM - corner), at(ROOM));
+  }
+}
+
+function drawWallPiece(wall: Wall, from: [number, number], to: [number, number]): void {
+  if (wall.material === "none") return;
+  const texture = art(`walls/${wall.material}.png`);
+  ctx.strokeStyle = texture ? ctx.createPattern(texture, "repeat")! : WALL_COLORS[wall.material];
+  ctx.lineWidth = Math.max(6, Math.min(22, 6 + wall.height * 0.6));
+  ctx.lineCap = "square";
+  ctx.beginPath();
+  ctx.moveTo(...from);
+  ctx.lineTo(...to);
+  ctx.stroke();
   ctx.lineCap = "butt";
 }
 
@@ -304,7 +342,7 @@ function drawWorldMap(): void {
     for (const dir of Object.keys(ROOMS[id].exits) as Direction[]) {
       const step = DIRECTION_STEP[dir];
       if (step.dz !== 0 || !game.knowsExit(id, dir)) continue;
-      mapCtx.lineWidth = ROOMS[id].exits[dir]?.open ? 9 : 3; // open air reads as one joined space
+      mapCtx.lineWidth = isOpenAir(ROOMS[id], dir) ? 9 : 3; // open air reads as one joined space
       mapCtx.beginPath();
       mapCtx.moveTo(from.x, from.y);
       mapCtx.lineTo(from.x + (step.dx * gap) / 2, from.y - (step.dy * gap) / 2);

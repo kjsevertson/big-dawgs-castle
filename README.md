@@ -87,6 +87,20 @@ exits: {
 }
 ```
 
-An exit can also be **open air** with `open: true`. That's for one big space split into several rooms, like a great hall drawn as six rooms. There's no wall between open-air rooms, so the screen leaves that wall (or corner) out, and an open-air exit can't have a door. The courtyard is drawn this way: it opens east into its other half and southwest into the garden.
-
 A door has two sides, one in each room. Opening or closing one side does the same to the other. Door flags are `locked` (won't open), `secret` (hidden until you `search`), and `trapped` (marked for now, but traps come later).
+
+### Walls
+
+A room has eight wall pieces, one at each exit position: four walls and four corners. Each piece has a `material` (stone, brick, wood, rock, hedge, palisade, or none) and a `height` in feet. Later, skills can use these to break through a wall or climb over it.
+
+```ts
+wall: { material: "stone", height: 20 },  // every side, unless...
+walls: { east: NO_WALL },                 // ...a side is different
+```
+
+The walls also decide what kind of exit you have. An exit through a wall is a doorway, and can hold a door. An exit where there's no wall is open air, for one big space split into several rooms, like a great hall drawn as six rooms. The courtyard is built this way: it opens east into its other half and southwest into the garden.
+
+## Art
+
+`public/art/README.md` lists the floor and wall images the game looks for. Drop a PNG in with the right name and it replaces the stand-in color.
+

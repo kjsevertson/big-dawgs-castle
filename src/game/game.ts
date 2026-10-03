@@ -2,7 +2,7 @@
 // Everything the player does, whether they click or type, ends up here as a command.
 // Later this file moves onto the server, and the screen will only draw what it says.
 
-import { Direction, Exit, OPPOSITE, ROOMS, Room, STARTING_ROOM, Thing } from "./world";
+import { Direction, Exit, OPPOSITE, ROOMS, Room, STARTING_ROOM, Thing, isOpenAir } from "./world";
 
 // Words and short forms players can type, MUD style.
 const DIRECTION_WORDS: Record<string, Direction> = {
@@ -68,7 +68,7 @@ export class Game {
     const dir = DIRECTION_WORDS[words];
     const exit = dir && this.knownExit(dir);
     if (dir && exit) {
-      if (exit.open) return [`The space opens up to the ${dir}.`];
+      if (isOpenAir(this.room, dir)) return [`The space opens up to the ${dir}.`];
       if (!exit.door) return [`An opening leads ${dir}.`];
       return [`A door leads ${dir}. It is ${exit.door.closed ? "closed" : "open"}.`];
     }

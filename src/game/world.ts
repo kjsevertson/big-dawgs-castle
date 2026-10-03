@@ -47,10 +47,34 @@ export interface Door {
 
 export interface Exit {
   to: string; // the room id this exit leads to
-  // Open air: the two rooms are parts of one bigger space, with no wall between them
-  // (say, one great hall drawn as six rooms). Without this, the exit is a doorway in a wall.
-  open?: boolean;
-  door?: Door; // only a doorway can hold a door
+  door?: Door; // only a doorway (an exit through a wall) can hold a door
+}
+
+// ---- walls ----
+// A room has eight wall pieces, one for each exit position: four walls and four corners.
+// An exit through a wall is a doorway. An exit where there's no wall is open air,
+// which joins rooms that are parts of one bigger space (say, a great hall drawn as six rooms).
+
+export type Side = Exclude<Direction, "up" | "down">;
+export const SIDES: Side[] = ["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"];
+
+export type WallMaterial = "none" | "stone" | "brick" | "wood" | "rock" | "hedge" | "palisade";
+
+export interface Wall {
+  material: WallMaterial; // later: what skills can break through it
+  height: number;         // in feet; later: what skills can climb over it
+}
+
+export const NO_WALL: Wall = { material: "none", height: 0 };
+
+export function wallAt(room: Room, side: Side): Wall {
+  return room.walls?.[side] ?? room.wall;
+}
+
+// An exit is open air when there's no wall where it is. Up and down never are.
+export function isOpenAir(room: Room, dir: Direction): boolean {
+  if (dir === "up" || dir === "down") return false;
+  return wallAt(room, dir).material === "none";
 }
 
 // Something in a room you can interact with. You never walk over to it:
@@ -79,6 +103,8 @@ export interface Room {
   road?: boolean;   // a road runs through this room, whatever its sector
   indoor: boolean;  // indoor rooms don't feel weather, daylight or night
   light: number;    // 0 is perfect darkness, 100 is the brightest summer noon
+  wall: Wall;                          // the wall on every side, unless overridden below
+  walls?: Partial<Record<Side, Wall>>; // sides that differ from the usual wall
   exits: Partial<Record<Direction, Exit>>;
   contents: Thing[];
 }
@@ -90,6 +116,7 @@ export const ROOMS: Record<string, Room> = {
     name: "The Gatehouse",
     description: "A cramped stone room under the castle wall. The courtyard lies to the north.",
     sector: "city", climate: "temperate", road: true, indoor: true, light: 35,
+    wall: { material: "stone", height: 15 },
     exits: { north: { to: "courtyard", door: { closed: true } } },
     contents: [
       { name: "a portcullis winch", keywords: ["winch", "portcullis"], kind: "feature", description: "A big iron winch, rusted solid. Nobody has lowered the portcullis in years." },
@@ -102,13 +129,15 @@ export const ROOMS: Record<string, Room> = {
     name: "The Courtyard",
     description: "An open yard of stone and grass. Ways lead off in many directions.",
     sector: "city", climate: "temperate", road: true, indoor: false, light: 80,
+    wall: { material: "stone", height: 20 },
+    walls: { east: NO_WALL, southwest: NO_WALL },
     exits: {
       north: { to: "greatHall" },
       northeast: { to: "kitchen" },
       south: { to: "gatehouse", door: { closed: true } },
-      east: { to: "courtyardEast", open: true },
+      east: { to: "courtyardEast" },
       west: { to: "towerBase" },
-      southwest: { to: "garden", open: true },
+      southwest: { to: "garden" },
     },
     contents: [
       { name: "an old well", keywords: ["well"], kind: "feature", description: "An old stone well. You hear water far below." },
@@ -121,6 +150,7 @@ export const ROOMS: Record<string, Room> = {
     name: "The Great Hall",
     description: "A long hall with a feasting table. The kitchen is to the east.",
     sector: "city", climate: "temperate", indoor: true, light: 60,
+    wall: { material: "stone", height: 12 },
     exits: {
       south: { to: "courtyard" },
       east: { to: "kitchen", door: { closed: true } },
@@ -138,8 +168,10 @@ export const ROOMS: Record<string, Room> = {
     name: "The Courtyard, East Side",
     description: "The east end of the courtyard, under the kitchen windows. The yard opens up to the west.",
     sector: "city", climate: "temperate", road: true, indoor: false, light: 80,
+    wall: { material: "stone", height: 20 },
+    walls: { west: NO_WALL },
     exits: {
-      west: { to: "courtyard", open: true },
+      west: { to: "courtyard" },
       north: { to: "kitchen" },
     },
     contents: [
@@ -152,6 +184,7 @@ export const ROOMS: Record<string, Room> = {
     name: "The Kitchen",
     description: "Smoke-stained walls and a long work table. It smells of old bread.",
     sector: "city", climate: "temperate", indoor: true, light: 50,
+    wall: { material: "stone", height: 10 },
     exits: {
       west: { to: "greatHall", door: { closed: true } },
       southwest: { to: "courtyard" },
@@ -170,6 +203,7 @@ export const ROOMS: Record<string, Room> = {
     name: "The Pantry",
     description: "Shelves of jars and sacks. Somebody keeps this locked for a reason.",
     sector: "city", climate: "temperate", indoor: true, light: 15,
+    wall: { material: "stone", height: 10 },
     exits: { south: { to: "kitchen", door: { closed: true, locked: true, trapped: true } } },
     contents: [
       { name: "sacks of flour", keywords: ["sacks", "flour"], kind: "item", description: "Heavy sacks of flour, stacked to the ceiling." },
@@ -181,7 +215,9 @@ export const ROOMS: Record<string, Room> = {
     name: "The Herb Garden",
     description: "Overgrown beds of herbs inside a low wall. The tower rises to the north.",
     sector: "city", climate: "temperate", indoor: false, light: 85,
-    exits: { northeast: { to: "courtyard", open: true }, north: { to: "towerBase" } },
+    wall: { material: "stone", height: 4 },
+    walls: { northeast: NO_WALL },
+    exits: { northeast: { to: "courtyard" }, north: { to: "towerBase" } },
     contents: [
       { name: "a patch of mint", keywords: ["mint", "patch"], kind: "feature", description: "Mint has taken over half the garden. It smells wonderful." },
       { name: "a stone bench", keywords: ["bench"], kind: "feature", description: "A mossy stone bench in the sun." },
@@ -193,6 +229,7 @@ export const ROOMS: Record<string, Room> = {
     name: "Base of the Tower",
     description: "A tall, round room with stairs climbing up into darkness.",
     sector: "city", climate: "temperate", indoor: true, light: 20,
+    wall: { material: "stone", height: 12 },
     exits: {
       east: { to: "courtyard" },
       south: { to: "garden" },
@@ -209,6 +246,7 @@ export const ROOMS: Record<string, Room> = {
     name: "Top of the Tower",
     description: "Wind whips across the battlements. You can see the whole castle from here.",
     sector: "city", climate: "temperate", indoor: false, light: 90,
+    wall: { material: "stone", height: 3 },
     exits: { down: { to: "towerBase" } },
     contents: [
       { name: "a rusty spyglass", keywords: ["spyglass", "glass"], kind: "item", description: "A brass spyglass, green with age. The lens is cracked." },
@@ -220,6 +258,7 @@ export const ROOMS: Record<string, Room> = {
     name: "A Secret Passage",
     description: "A narrow, dusty passage hidden inside the castle wall.",
     sector: "city", climate: "temperate", indoor: true, light: 5,
+    wall: { material: "stone", height: 8 },
     exits: {
       east: { to: "greatHall", door: { closed: true, secret: true } },
       south: { to: "towerBase" },
@@ -248,8 +287,8 @@ export function checkWorld(): string[] {
       }
       const back = target.exits[OPPOSITE[dir]];
       if (back?.to !== room.id) problems.push(`${target.id} has no ${OPPOSITE[dir]} exit back to ${room.id}`);
-      else if (!!back.open !== !!exit.open) problems.push(`${room.id} ${dir} and its way back disagree about being open air`);
-      if (exit.open && exit.door) problems.push(`${room.id} ${dir} is open air, so it can't have a door`);
+      else if (isOpenAir(room, dir) !== isOpenAir(target, OPPOSITE[dir])) problems.push(`${room.id} ${dir} has a wall on one side but not the other`);
+      if (isOpenAir(room, dir) && exit.door) problems.push(`${room.id} ${dir} has no wall, so it can't have a door`);
     }
   }
   return problems;
