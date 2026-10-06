@@ -2,6 +2,8 @@
 // Everything the player does, whether they click or type, ends up here as a command.
 // Later this file moves onto the server, and the screen will only draw what it says.
 
+import { GameClock, PULSES_PER_HOUR } from "./clock";
+import { Heartbeat } from "./heartbeat";
 import { Direction, Exit, OPPOSITE, ROOMS, Room, STARTING_ROOM, Thing, isOpenAir } from "./world";
 
 // Words and short forms players can type, MUD style.
@@ -24,8 +26,36 @@ export class Game {
   // Secret doors this player has found, as "roomId:direction".
   foundSecrets = new Set<string>();
 
+  heartbeat = new Heartbeat();
+  clock = new GameClock();
+
+  // Called when something happens that the player didn't ask for, like the sun rising.
+  // The screen sets this to print the lines and redraw.
+  onMessage: (lines: string[]) => void = () => {};
+
+  constructor() {
+    this.heartbeat.every(PULSES_PER_HOUR, () => this.hourPasses());
+  }
+
   get room(): Room {
     return ROOMS[this.roomId];
+  }
+
+  // How bright it is where the player stands right now.
+  // Indoors it's whatever the room says. Outdoors the room's light is its brightness
+  // at midday, scaled by the sun, and never darker than a little moonlight.
+  get lightHere(): number {
+    const room = this.room;
+    if (room.indoor) return room.light;
+    const moonlight = Math.min(room.light, 10);
+    return Math.max(moonlight, Math.round(room.light * this.clock.sunlight));
+  }
+
+  // Once every game hour: move the clock, and tell people outdoors if the sky changed.
+  private hourPasses(): void {
+    this.clock.advanceHour();
+    const sky = this.clock.skyMessage();
+    this.onMessage(sky && !this.room.indoor ? [sky] : []);
   }
 
   // Run one command and return the lines of text to show the player.
@@ -44,10 +74,11 @@ export class Game {
     if (verb === "open") return dirArg ? this.open(dirArg) : ["Open which way? For example: open north."];
     if (verb === "close") return dirArg ? this.close(dirArg) : ["Close which way? For example: close north."];
     if (verb === "search") return this.search();
+    if (verb === "time") return [this.clock.describe()];
     if (verb === "help") {
       return [
         "Move with north, northeast, east, southeast, south, southwest, west, northwest, up, down (or n ne e se s sw w nw u d).",
-        "Also: look, look <thing>, open <direction>, close <direction>, search, help.",
+        "Also: look, look <thing>, open <direction>, close <direction>, search, time, help.",
       ];
     }
     return [`You don't know how to "${input.trim()}".`];
@@ -56,7 +87,7 @@ export class Game {
   look(): string[] {
     const room = this.room;
     const exits = this.visibleExits().map(([dir, exit]) => (exit.door?.closed ? `${dir} (closed)` : dir));
-    const lines = [room.name, room.description, describeQualities(room)];
+    const lines = [room.name, room.description, describeQualities(room, this.lightHere)];
     if (room.contents.length > 0) lines.push(`You see ${listNames(room.contents)}.`);
     lines.push(`Exits: ${exits.join(", ") || "none"}.`);
     return lines;
@@ -161,10 +192,10 @@ function listNames(things: Thing[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
-function describeQualities(room: Room): string {
+function describeQualities(room: Room, light: number): string {
   const parts = [room.sector, room.climate, room.indoor ? "indoors" : "outdoors"];
   if (room.road) parts.push("road");
-  return `[${parts.join(", ")} · light ${room.light}: ${lightWord(room.light)}]`;
+  return `[${parts.join(", ")} · light ${light}: ${lightWord(light)}]`;
 }
 
 function lightWord(light: number): string {

@@ -112,7 +112,7 @@ function draw(): void {
 
   // The room itself: one square scene. Light sets how dark the floor looks.
   drawFloor(room);
-  ctx.fillStyle = `rgba(8, 8, 20, ${darkness(room.light)})`;
+  ctx.fillStyle = `rgba(8, 8, 20, ${darkness(game.lightHere)})`;
   ctx.fillRect(CENTER - HALF, CENTER - HALF, ROOM, ROOM);
   drawWalls(room);
 
@@ -132,7 +132,7 @@ function draw(): void {
   }
   tokens.forEach((token, i) => {
     const { x, y } = ringSpot(i, tokens.length);
-    ctx.globalAlpha = 0.45 + 0.55 * (room.light / 100);
+    ctx.globalAlpha = 0.45 + 0.55 * (game.lightHere / 100);
     token.draw(x, y);
     ctx.globalAlpha = 1;
     hotspots.push({ x, y, r: TOKEN + 6, command: token.command });
@@ -427,3 +427,10 @@ print(["Welcome to Big Dawg's Castle.", "Click a doorway to go through it or ope
 print(game.look());
 draw();
 input.focus();
+
+// Start the heartbeat. When time passes, show any news and redraw, since the light may have changed.
+game.onMessage = (lines) => {
+  print(lines);
+  draw();
+};
+game.heartbeat.start();
