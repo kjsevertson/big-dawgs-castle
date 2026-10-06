@@ -1,0 +1,23 @@
+{
+  "name": "big-dawgs-castle",
+  "version": "1.0.0",
+  "description": "A graphical MUD you can play with the mouse or a terminal.",
+  "scripts": {
+    "dev": "esbuild src/client/main.ts --bundle --outfile=public/main.js --servedir=public --watch",
+    "build": "esbuild src/client/main.ts --bundle --outfile=public/main.js",
+    "check": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kjsevertson/big-dawgs-castle.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kjsevertson/big-dawgs-castle/issues"
+  },
+  "homepage": "https://github.com/kjsevertson/big-dawgs-castle#readme",
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "private": true
+}
